@@ -2,9 +2,8 @@ name: Poll IZ152 Flight Data
 
 on:
   schedule:
-    # Every 5 minutes (GitHub's minimum interval)
-    - cron: '*/5 * * * *'
-  # Allow manual trigger from github.com/rosamir/tsua-demo/actions
+    # Every 15 minutes (uses ~192 AviationStack API calls over 48h — within free 500/month limit)
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -26,13 +25,12 @@ jobs:
         run: npm install nodemailer --no-save
 
       - name: Fetch flight data and detect changes
-        id: poll
         run: node scripts/poll-flight.js
         env:
+          AVIATIONSTACK_KEY: ${{ secrets.AVIATIONSTACK_KEY }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           NOTIFY_EMAILS: ${{ secrets.NOTIFY_EMAILS }}
-        # Don't fail the workflow if FlightStats is unreachable
         continue-on-error: true
 
       - name: Check if data changed
@@ -50,5 +48,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add public/data/
-          git commit -m "data: update IZ152 flight data [$(date -u '+%H:%M UTC')]"
+          git commit -m "data: update IZ152 [$(date -u '+%H:%M UTC')]"
           git push
