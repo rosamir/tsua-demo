@@ -1,0 +1,30 @@
+{
+  "flightNumber": "IZ152",
+  "airline": "ארקיע",
+  "status": "S",
+  "statusHe": "מתוכנן",
+  "departure": {
+    "airport": "Paphos International Airport",
+    "iata": "PFO",
+    "cityHe": "פאפוס",
+    "scheduled": null,
+    "estimated": null,
+    "actual": null,
+    "terminal": null,
+    "gate": null
+  },
+  "arrival": {
+    "airport": "Ben Gurion International Airport",
+    "iata": "TLV",
+    "cityHe": "תל אביב",
+    "scheduled": null,
+    "estimated": null,
+    "actual": null,
+    "terminal": "3",
+    "gate": null
+  },
+  "duration": null,
+  "aircraft": { "type": null },
+  "isMock": true,
+  "fetchedAt": "2026-05-02T00:00:00.000Z"
+}
