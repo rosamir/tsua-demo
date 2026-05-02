@@ -1,451 +1,585 @@
-import React, { useState } from 'react';
-import { 
-  Home, TrendingUp, MessageSquare, User, 
-  ArrowRightLeft, ShieldCheck, PieChart, 
-  ChevronRight, Sparkles, Code2, Fingerprint
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  Plane, RefreshCw, Bell, BellOff, Mail, CheckCircle2,
+  Clock, AlertTriangle, XCircle, Navigation, Info,
+  ChevronDown, ChevronUp, Wifi, WifiOff, Send,
 } from 'lucide-react';
 
-// --- נתונים ורכיבי עזר ---
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-const userData = {
-  name: "חנן",
-  totalCash: 125000,
-  idleCash: 45000,
-  potentialLoss: 1850
-};
+function fmtTime(iso, tz = 'Asia/Jerusalem') {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', timeZone: tz });
+  } catch { return iso; }
+}
 
-const depositOffers = [
-  { 
-    id: 1, 
-    bankName: "בנק דיגיטל", 
-    bankColor: "bg-purple-100 text-purple-700",
-    interest: "4.5%", 
-    period: "12 חודשים", 
-    type: "ריבית קבועה", 
-    liquidity: "אין תחנות יציאה",
-    rating: 9.5
-  },
-  { 
-    id: 2, 
-    bankName: "בנק מסורת", 
-    bankColor: "bg-blue-100 text-blue-700",
-    interest: "4.1%", 
-    period: "חודשי", 
-    type: "ריבית משתנה (פריים)", 
-    liquidity: "נזיל כל 30 יום",
-    rating: 8.8
-  },
-  { 
-    id: 3, 
-    bankName: "בית השקעות מיטב", 
-    bankColor: "bg-green-100 text-green-700",
-    interest: "5.2%", 
-    period: "24 חודשים", 
-    type: "צמוד מדד", 
-    liquidity: "קנס שבירה",
-    rating: 7.5
-  }
-];
+function fmtDateTime(iso) {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('he-IL', {
+      day: '2-digit', month: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+      timeZone: 'Asia/Jerusalem',
+    });
+  } catch { return iso; }
+}
 
-// --- רכיבים ויזואליים ---
+function timeDiff(a, b) {
+  if (!a || !b) return null;
+  const diff = Math.round((new Date(b) - new Date(a)) / 60000);
+  if (diff === 0) return null;
+  return diff > 0 ? `+${diff} דק'` : `${diff} דק'`;
+}
 
-// כפתור ניווט תחתון
-const NavButton = ({ icon: Icon, label, active, onClick }) => (
-  <button 
-    onClick={onClick}
-    className={`flex flex-col items-center justify-center w-full py-2 transition-all duration-300 ${active ? 'text-blue-600 scale-110' : 'text-gray-400 hover:text-gray-500'}`}
-  >
-    <Icon size={24} strokeWidth={active ? 2.5 : 2} />
-    <span className="text-[10px] mt-1 font-medium">{label}</span>
-  </button>
-);
+function statusConfig(status) {
+  const s = (status || '').toUpperCase();
+  if (s === 'ACTIVE' || s === 'A')  return { color: 'text-sky-400',   bg: 'bg-sky-900/50',  border: 'border-sky-600',  icon: Navigation };
+  if (s === 'LANDED' || s === 'L')  return { color: 'text-green-400', bg: 'bg-green-900/50', border: 'border-green-600', icon: CheckCircle2 };
+  if (s === 'CANCELLED' || s === 'C') return { color: 'text-red-400', bg: 'bg-red-900/50',   border: 'border-red-600',   icon: XCircle };
+  if (s === 'DELAYED' || s === 'D') return { color: 'text-amber-400', bg: 'bg-amber-900/50', border: 'border-amber-600', icon: AlertTriangle };
+  return { color: 'text-blue-300',  bg: 'bg-blue-900/50',  border: 'border-blue-700', icon: Clock };
+}
 
-// רכיב קרדיט פנימי - מופיע בתחתית כל מסך גלילה
-const InnerCredit = () => (
-  <div className="py-8 flex flex-col items-center justify-center opacity-60">
-    <div className="w-12 h-0.5 bg-gray-300 rounded-full mb-3"></div>
-    <div className="flex items-center space-x-2 space-x-reverse text-gray-500">
-      <Code2 size={14} />
-      <span className="text-xs font-medium tracking-wide">Developed by Amir Rosen</span>
-    </div>
-    <span className="text-[9px] text-gray-400 mt-1 uppercase tracking-widest">Concept Prototype</span>
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+const Spinner = () => (
+  <div className="flex items-center justify-center h-full">
+    <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
   </div>
 );
 
-// --- מסכים ---
+const ErrorBanner = ({ message, onRetry }) => (
+  <div className="mx-4 mt-4 p-4 bg-red-900/40 border border-red-700 rounded-2xl flex items-start gap-3">
+    <WifiOff size={18} className="text-red-400 mt-0.5 shrink-0" />
+    <div className="flex-1">
+      <p className="text-red-200 text-sm">{message}</p>
+      <button onClick={onRetry} className="mt-2 text-xs text-red-400 underline">נסה שוב</button>
+    </div>
+  </div>
+);
 
-const OnboardingScreen = ({ onComplete }) => {
-  const [step, setStep] = useState(1);
-  
-  const handleNext = () => {
-    if (step < 3) setStep(step + 1);
-    else onComplete();
+function TimeCard({ label, iata, cityHe, scheduled, estimated, actual, terminal, gate, side }) {
+  const display = actual || estimated || scheduled;
+  const delay = timeDiff(scheduled, estimated || actual);
+  const isDelayed = delay && delay.startsWith('+');
+
+  return (
+    <div className={`flex-1 ${side === 'dep' ? 'text-right' : 'text-left'}`}>
+      <div className="text-xs text-slate-500 font-medium mb-1">{label}</div>
+      <div className="text-3xl font-black text-white tracking-tight">{fmtTime(display)}</div>
+      <div className="text-sm font-bold text-slate-300 mt-0.5">{iata}</div>
+      <div className="text-xs text-slate-500">{cityHe}</div>
+      {delay && (
+        <div className={`text-xs font-bold mt-1 ${isDelayed ? 'text-amber-400' : 'text-green-400'}`}>
+          {delay}
+        </div>
+      )}
+      {(terminal || gate) && (
+        <div className="text-xs text-slate-500 mt-1">
+          {terminal && <span>טרמינל {terminal}</span>}
+          {terminal && gate && ' · '}
+          {gate && <span>שער {gate}</span>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChangeItem({ change }) {
+  const formatVal = (field, val) => {
+    if (val === null || val === undefined) return 'לא ידוע';
+    if (field.includes('scheduled') || field.includes('estimated') || field.includes('actual')) {
+      return fmtTime(val);
+    }
+    return String(val);
   };
 
   return (
-    <div className="h-full flex flex-col bg-gradient-to-br from-blue-50 via-white to-blue-50 relative overflow-hidden">
-      
-      {/* Decorative Background */}
-      <div className="absolute top-0 right-0 w-64 h-64 bg-blue-100/50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-      <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-100/50 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"></div>
-
-      <div className="flex-1 p-6 flex flex-col justify-center relative z-10">
-        <div className="mb-8 text-center animate-fade-in-up">
-          <div className="inline-block p-3 bg-blue-600 rounded-2xl shadow-xl shadow-blue-200 mb-4">
-            <Sparkles className="text-white w-8 h-8" />
-          </div>
-          <h1 className="text-4xl font-extrabold text-blue-900 mb-2 tracking-tight">Tsua+</h1>
-          <p className="text-gray-500 font-medium text-lg">הכסף שלך יכול יותר.</p>
-        </div>
-
-        <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl border border-white/60 p-6 min-h-[340px] relative">
-          {step === 1 && (
-            <div className="animate-fade-in">
-              <h2 className="text-xl font-bold mb-6 text-gray-800 text-center">מה המטרה העיקרית?</h2>
-              <div className="space-y-3">
-                {[
-                  { id: 'liquidity', text: 'זקוק לנזילות (יום גשום)', icon: ArrowRightLeft },
-                  { id: 'yield', text: 'מקסום תשואה (טווח ארוך)', icon: TrendingUp },
-                  { id: 'mix', text: 'שילוב מאוזן וחכם', icon: PieChart },
-                ].map((opt) => (
-                  <button key={opt.id} onClick={handleNext} className="w-full text-right p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md hover:border-blue-300 hover:bg-blue-50 transition-all duration-200 group flex items-center justify-between">
-                    <span className="font-medium text-gray-700 group-hover:text-blue-700">{opt.text}</span>
-                    <opt.icon size={18} className="text-gray-400 group-hover:text-blue-500" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="animate-fade-in">
-              <h2 className="text-xl font-bold mb-6 text-gray-800 text-center">רמת סיכון מועדפת?</h2>
-              <div className="space-y-3">
-                <button onClick={handleNext} className="w-full text-right p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md hover:border-blue-300 hover:bg-blue-50 transition-all duration-200">
-                  <div className="font-bold text-gray-800">סולידי (בנק בלבד)</div>
-                  <div className="text-xs text-gray-500 mt-1">פקדונות מובטחים בלבד</div>
-                </button>
-                <button onClick={handleNext} className="w-full text-right p-4 bg-white border border-gray-100 rounded-2xl shadow-sm hover:shadow-md hover:border-blue-300 hover:bg-blue-50 transition-all duration-200">
-                  <div className="font-bold text-gray-800">משולב (סולידי +)</div>
-                  <div className="text-xs text-gray-500 mt-1">שילוב קרנות כספיות נזילות</div>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {step === 3 && (
-            <div className="animate-fade-in text-center pt-4">
-               <div className="mb-6 flex justify-center relative">
-                 <div className="absolute inset-0 bg-green-200 rounded-full blur-xl opacity-30 animate-pulse"></div>
-                 <ShieldCheck size={72} className="text-green-500 relative z-10" />
-               </div>
-               <h2 className="text-xl font-bold mb-2">מנתח נתונים...</h2>
-               <p className="text-gray-500 text-sm mb-8 leading-relaxed px-4">
-                 אנו סורקים את האפשרויות הטובות ביותר עבורך באמצעות מנוע ה-AI שלנו.
-               </p>
-               <button onClick={onComplete} className="w-full py-3.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-lg transform active:scale-95 transition-all">
-                 הצג את הממצאים שלי
-               </button>
-            </div>
-          )}
-
-          <div className="absolute bottom-6 left-0 right-0 flex justify-center space-x-2 space-x-reverse">
-            {[1, 2, 3].map(i => (
-              <div key={i} className={`h-1.5 rounded-full transition-all duration-500 ${step >= i ? 'w-6 bg-blue-600' : 'w-2 bg-gray-200'}`}></div>
-            ))}
-          </div>
-        </div>
+    <div className="bg-slate-800/60 border border-slate-700 rounded-2xl p-4">
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <span className="text-xs text-slate-500">{fmtDateTime(change.timestamp)}</span>
+        <span className="text-xs font-bold text-blue-400 bg-blue-900/40 px-2 py-0.5 rounded-full">{change.label}</span>
       </div>
-
-      {/* Prominent Footer Credit inside Onboarding */}
-      <div className="pb-8 pt-4 text-center z-20">
-        <div className="flex flex-col items-center justify-center space-y-1">
-            <span className="text-[10px] uppercase tracking-[0.2em] text-gray-400">Concept & Design</span>
-            <div className="flex items-center space-x-2 space-x-reverse bg-white/50 px-4 py-1.5 rounded-full border border-white shadow-sm backdrop-blur-sm">
-                <Fingerprint size={14} className="text-blue-500" />
-                <span className="text-sm font-bold text-gray-700">Amir Rosen</span>
-            </div>
-        </div>
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-red-400 line-through">{formatVal(change.field, change.from)}</span>
+        <span className="text-slate-500 text-sm">→</span>
+        <span className="text-sm font-bold text-green-400">{formatVal(change.field, change.to)}</span>
       </div>
     </div>
   );
-};
+}
 
-const DashboardScreen = ({ onNavigate }) => {
-  return (
-    <div className="p-5 space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center pt-2">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900">שלום, {userData.name}</h2>
-          <p className="text-gray-500 text-sm">בוקר טוב לפיננסים שלך</p>
-        </div>
-        <div className="bg-white p-2 rounded-full shadow-sm border border-gray-100">
-          <User size={24} className="text-gray-700" />
-        </div>
-      </div>
+function EmailSubscription({ onNotify }) {
+  const [email, setEmail] = useState('');
+  const [status, setStatus] = useState(null); // null | 'loading' | 'ok' | 'error'
+  const [msg, setMsg] = useState('');
+  const [testEmail, setTestEmail] = useState('');
+  const [testStatus, setTestStatus] = useState(null);
+  const [showTest, setShowTest] = useState(false);
 
-      {/* Main Insight Card */}
-      <div className="bg-gradient-to-br from-indigo-600 to-blue-700 rounded-3xl p-6 text-white shadow-xl shadow-blue-200 relative overflow-hidden group">
-        <div className="absolute top-0 right-0 w-40 h-40 bg-white opacity-5 rounded-full -translate-y-1/2 translate-x-1/2 group-hover:scale-110 transition-transform duration-700"></div>
-        <div className="relative z-10">
-          <div className="flex items-center space-x-2 space-x-reverse mb-3 bg-white/10 w-fit px-3 py-1 rounded-full backdrop-blur-md">
-            <Sparkles size={14} className="text-yellow-300" />
-            <span className="font-bold text-xs tracking-wide">תובנת AI</span>
-          </div>
-          <div className="flex items-baseline space-x-1 space-x-reverse mb-1">
-            <h3 className="text-4xl font-extrabold tracking-tight">₪{userData.potentialLoss.toLocaleString()}</h3>
-          </div>
-          <p className="text-blue-100 text-sm mb-6 leading-relaxed">
-            זה הסכום שניתן להוסיף לנטו שלך השנה, <br/> רק מטיפול בכסף שיושב בעו"ש.
-          </p>
-          <button onClick={() => onNavigate('market')} className="bg-white text-blue-700 px-6 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:bg-blue-50 transition transform hover:-translate-y-0.5 w-full sm:w-auto">
-            הפוך כסף להכנסה
-          </button>
-        </div>
-      </div>
+  async function subscribe(e) {
+    e.preventDefault();
+    if (!email) return;
+    setStatus('loading');
+    try {
+      const res = await fetch('/api/subscribe/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setStatus('ok');
+        setMsg(data.message);
+        onNotify?.(data.message);
+      } else {
+        setStatus('error');
+        setMsg(data.error || 'שגיאה');
+      }
+    } catch {
+      setStatus('error');
+      setMsg('שגיאת חיבור');
+    }
+  }
 
-      {/* Quick Stats */}
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-white p-5 rounded-2xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-100 flex flex-col justify-between h-28">
-          <div className="bg-gray-50 w-8 h-8 rounded-full flex items-center justify-center mb-2">
-            <PieChart size={16} className="text-gray-600" />
-          </div>
-          <div>
-            <p className="text-gray-400 text-xs font-medium">נזילות כוללת</p>
-            <p className="text-lg font-bold text-gray-800">₪{userData.totalCash.toLocaleString()}</p>
-          </div>
-        </div>
-        <div className="bg-white p-5 rounded-2xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.05)] border border-gray-100 flex flex-col justify-between h-28 relative overflow-hidden">
-          <div className="absolute right-0 top-0 w-16 h-full bg-red-50 -skew-x-12 translate-x-8"></div>
-          <div className="bg-red-50 w-8 h-8 rounded-full flex items-center justify-center mb-2 relative z-10">
-            <TrendingUp size={16} className="text-red-500" />
-          </div>
-          <div className="relative z-10">
-            <p className="text-gray-400 text-xs font-medium">תשואה נוכחית</p>
-            <div className="flex items-baseline space-x-2 space-x-reverse">
-              <p className="text-lg font-bold text-gray-800">0.1%</p>
-              <span className="text-[10px] text-red-500 bg-red-100 px-1.5 py-0.5 rounded-md font-bold">נמוך</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Feature Teaser */}
-      <div onClick={() => onNavigate('ai')} className="bg-gradient-to-r from-gray-900 to-gray-800 p-4 rounded-2xl flex items-center space-x-4 space-x-reverse cursor-pointer shadow-lg text-white group">
-        <div className="bg-white/10 p-2.5 rounded-xl group-hover:bg-white/20 transition">
-          <MessageSquare size={20} className="text-blue-300" />
-        </div>
-        <div className="flex-1">
-          <p className="text-sm font-bold mb-0.5">צ'אט עם מומחה</p>
-          <p className="text-xs text-gray-400">יש לך שאלות על המדד? הבוט זמין</p>
-        </div>
-        <ChevronRight size={20} className="text-gray-500 rotate-180 group-hover:text-white transition" />
-      </div>
-
-      <InnerCredit />
-    </div>
-  );
-};
-
-const MarketScreen = ({ onNavigate }) => {
-  return (
-    <div className="p-5 bg-gray-50 min-h-screen">
-      <div className="flex justify-between items-end mb-6 sticky top-0 bg-gray-50 py-2 z-10">
-        <h2 className="text-2xl font-bold text-gray-900">הזדמנויות</h2>
-        <span className="text-xs text-gray-500 font-medium bg-white px-2 py-1 rounded-md border shadow-sm">עודכן עכשיו</span>
-      </div>
-      
-      {/* Filter Tabs */}
-      <div className="flex space-x-3 space-x-reverse mb-6 overflow-x-auto no-scrollbar py-1">
-        <button className="bg-gray-900 text-white px-5 py-2 rounded-full text-xs font-bold shadow-md whitespace-nowrap">הכל</button>
-        <button className="bg-white text-gray-600 border border-gray-200 px-5 py-2 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">נזילות מיידית</button>
-        <button className="bg-white text-gray-600 border border-gray-200 px-5 py-2 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">צמוד מדד</button>
-      </div>
-
-      {/* Offers List */}
-      <div className="space-y-5">
-        {depositOffers.map((offer) => (
-          <div key={offer.id} className="bg-white rounded-3xl p-5 shadow-sm border border-gray-100 relative overflow-hidden group hover:shadow-md transition-all duration-300">
-            {offer.id === 1 && (
-              <div className="absolute top-0 left-0 bg-gradient-to-br from-green-500 to-emerald-600 text-white text-[10px] px-3 py-1.5 rounded-br-2xl font-bold shadow-sm z-10">
-                הבחירה החכמה
-              </div>
-            )}
-            
-            <div className="flex justify-between items-start mb-5 relative">
-              <div className="flex items-center space-x-3 space-x-reverse">
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-bold text-sm ${offer.bankColor} shadow-inner`}>
-                  {offer.bankName.substring(0,2)}
-                </div>
-                <div>
-                  <h3 className="font-bold text-gray-900 text-lg leading-tight">{offer.bankName}</h3>
-                  <p className="text-xs text-gray-500 mt-0.5">{offer.type}</p>
-                </div>
-              </div>
-              <div className="text-left bg-gray-50 px-3 py-1 rounded-xl">
-                <span className="block text-2xl font-extrabold text-blue-600">{offer.interest}</span>
-                <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">שנתי</span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 text-sm text-gray-600 mb-5">
-              <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
-                <span className="text-[10px] text-gray-400 block mb-1">תקופה</span>
-                <span className="font-bold text-gray-800">{offer.period}</span>
-              </div>
-              <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
-                <span className="text-[10px] text-gray-400 block mb-1">יציאה</span>
-                <span className="font-bold text-gray-800">{offer.liquidity}</span>
-              </div>
-            </div>
-
-            <div className="flex space-x-3 space-x-reverse">
-              <button onClick={() => onNavigate('ai')} className="flex-1 py-3 border border-gray-200 rounded-xl text-sm text-gray-600 font-bold hover:bg-gray-50 transition flex items-center justify-center gap-2">
-                <MessageSquare size={16} />
-                ניתוח AI
-              </button>
-              <button className="flex-1 py-3 bg-gray-900 rounded-xl text-sm text-white font-bold hover:bg-gray-800 shadow-lg shadow-gray-200 transition">
-                הפקדה מהירה
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-      <InnerCredit />
-    </div>
-  );
-};
-
-const AiScreen = () => {
-  const [messages, setMessages] = useState([
-    { type: 'bot', text: 'היי חנן, אני הבוט של Tsua+. זיהיתי שהפקדון בבנק דיגיטל מציע 4.5% קבוע. זה גבוה ב-1% מהממוצע בשוק כרגע. רוצה פרטים על נקודות היציאה?' }
-  ]);
-  const [input, setInput] = useState('');
-
-  const handleSend = () => {
-    if (!input.trim()) return;
-    setMessages([...messages, { type: 'user', text: input }]);
-    setInput('');
-    setTimeout(() => {
-      setMessages(prev => [...prev, { 
-        type: 'bot', 
-        text: 'בבנק דיגיטל הכסף סגור לשנה. אם אתה חושב שתצטרך את הכסף לפני, בנק מסורת מציע נזילות חודשית אבל בריבית נמוכה יותר (4.1%). מה עדיף לך - גמישות או תשואה מקסימלית?' 
-      }]);
-    }, 1500);
-  };
+  async function sendTest(e) {
+    e.preventDefault();
+    if (!testEmail) return;
+    setTestStatus('loading');
+    try {
+      const res = await fetch('/api/test-notification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: testEmail }),
+      });
+      const data = await res.json();
+      setTestStatus(data.ok ? 'ok' : 'error');
+    } catch {
+      setTestStatus('error');
+    }
+  }
 
   return (
-    <div className="flex flex-col h-full bg-white">
-      <div className="p-4 border-b border-gray-100 sticky top-0 z-10 bg-white/80 backdrop-blur-md">
-        <div className="flex items-center space-x-3 space-x-reverse">
-          <div className="relative">
-            <div className="bg-gradient-to-tr from-blue-600 to-indigo-600 p-2.5 rounded-xl shadow-lg shadow-blue-200">
-              <Sparkles size={20} className="text-white" />
-            </div>
-            <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 border-2 border-white rounded-full"></div>
-          </div>
-          <div>
-            <h2 className="font-bold text-gray-900">היועץ החכם</h2>
-            <p className="text-xs text-gray-500">מחובר למאגר הריביות הארצי</p>
-          </div>
+    <div className="mx-4 mt-4 bg-slate-800/60 border border-slate-700 rounded-3xl p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Mail size={18} className="text-blue-400" />
+        <h3 className="font-bold text-white text-sm">התראות מייל</h3>
+      </div>
+
+      {status === 'ok' ? (
+        <div className="flex items-center gap-2 text-green-400 text-sm">
+          <CheckCircle2 size={16} />
+          <span>{msg}</span>
         </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-5 space-y-6">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.type === 'user' ? 'justify-start' : 'justify-end'}`}>
-            <div className={`max-w-[85%] p-5 rounded-3xl text-sm leading-relaxed shadow-sm relative ${
-              msg.type === 'user' 
-                ? 'bg-gray-900 text-white rounded-tr-none' 
-                : 'bg-blue-50 text-gray-800 rounded-tl-none'
-            }`}>
-              {msg.text}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="p-4 border-t border-gray-100 bg-white">
-        <div className="flex items-center space-x-2 space-x-reverse bg-gray-50 p-1.5 rounded-full border border-gray-200 focus-within:border-blue-500 focus-within:ring-4 focus-within:ring-blue-100 transition-all">
-          <input 
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="שאל כל דבר..."
-            className="flex-1 bg-transparent border-0 px-4 py-2 text-sm focus:ring-0 focus:outline-none"
-            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+      ) : (
+        <form onSubmit={subscribe} className="flex gap-2">
+          <input
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="הכנס כתובת מייל..."
+            className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-right"
+            dir="rtl"
           />
-          <button onClick={handleSend} className="bg-blue-600 text-white p-3 rounded-full hover:bg-blue-700 shadow-md transition-transform active:scale-95">
-            <ChevronRight size={18} className="rotate-180" />
+          <button
+            type="submit"
+            disabled={status === 'loading'}
+            className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-sm font-bold disabled:opacity-50 transition-colors"
+          >
+            {status === 'loading' ? '...' : 'הרשם'}
           </button>
+        </form>
+      )}
+
+      {status === 'error' && <p className="text-red-400 text-xs mt-2">{msg}</p>}
+
+      {/* Test notification toggle */}
+      <button
+        onClick={() => setShowTest(v => !v)}
+        className="mt-3 text-xs text-slate-500 hover:text-slate-400 flex items-center gap-1 transition-colors"
+      >
+        <Send size={11} />
+        {showTest ? 'הסתר בדיקה' : 'שלח התראת בדיקה'}
+      </button>
+
+      {showTest && (
+        <form onSubmit={sendTest} className="mt-2 flex gap-2">
+          <input
+            type="email"
+            value={testEmail}
+            onChange={e => setTestEmail(e.target.value)}
+            placeholder="מייל לבדיקה..."
+            className="flex-1 bg-slate-900 border border-slate-600 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 text-right"
+            dir="rtl"
+          />
+          <button
+            type="submit"
+            disabled={testStatus === 'loading'}
+            className="bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-xl text-xs font-bold disabled:opacity-50 transition-colors"
+          >
+            {testStatus === 'loading' ? '...' : testStatus === 'ok' ? '✓' : 'שלח'}
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+function PushSubscription() {
+  const [state, setState] = useState('idle'); // idle | requesting | enabled | error | unsupported
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setState('unsupported');
+    }
+  }, []);
+
+  async function requestPush() {
+    setState('requesting');
+    try {
+      const vapidRes = await fetch('/api/vapid-public-key');
+      if (!vapidRes.ok) { setState('error'); setMsg('Push לא מוגדר בשרת'); return; }
+      const { key } = await vapidRes.json();
+
+      const perm = await Notification.requestPermission();
+      if (perm !== 'granted') { setState('error'); setMsg('הרשאה נדחתה'); return; }
+
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(key),
+      });
+
+      await fetch('/api/subscribe/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription: sub.toJSON() }),
+      });
+
+      setState('enabled');
+    } catch (e) {
+      setState('error');
+      setMsg(e.message);
+    }
+  }
+
+  if (state === 'unsupported') return null;
+
+  return (
+    <div className="mx-4 mt-3 bg-slate-800/60 border border-slate-700 rounded-3xl p-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {state === 'enabled' ? <Bell size={16} className="text-green-400" /> : <BellOff size={16} className="text-slate-400" />}
+          <div>
+            <p className="text-sm font-bold text-white">התראות Push</p>
+            <p className="text-xs text-slate-500">
+              {state === 'enabled' ? 'פעיל — תקבל התראות על שינויים' :
+               state === 'error' ? msg :
+               'קבל התראות ישירות לטלפון'}
+            </p>
+          </div>
         </div>
-        <div className="mt-4 flex justify-center opacity-40">
-           <span className="text-[9px] text-gray-500 uppercase font-medium">Developed by Amir Rosen</span>
-        </div>
+        {state !== 'enabled' && (
+          <button
+            onClick={requestPush}
+            disabled={state === 'requesting'}
+            className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-xl text-xs font-bold disabled:opacity-50 transition-colors"
+          >
+            {state === 'requesting' ? '...' : 'הפעל'}
+          </button>
+        )}
+        {state === 'enabled' && <CheckCircle2 size={18} className="text-green-400" />}
       </div>
     </div>
   );
-};
+}
 
-// --- אפליקציה ראשית ---
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = window.atob(base64);
+  return new Uint8Array([...raw].map(c => c.charCodeAt(0)));
+}
 
-const App = () => {
-  const [currentScreen, setCurrentScreen] = useState('onboarding');
+// ── Main App ─────────────────────────────────────────────────────────────────
+
+export default function App() {
+  const [flight, setFlight] = useState(null);
+  const [changes, setChanges] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [tab, setTab] = useState('status');
+  const [toast, setToast] = useState(null);
+  const [historyExpanded, setHistoryExpanded] = useState(true);
+
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const loadData = useCallback(async (manual = false) => {
+    if (manual) setRefreshing(true);
+    try {
+      const res = await fetch('/api/flight');
+      if (!res.ok) throw new Error(`שגיאת שרת ${res.status}`);
+      const data = await res.json();
+      setFlight(data.flight);
+      setChanges(data.changes || []);
+      setLastUpdated(new Date());
+      setError(null);
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(() => loadData(), 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
+  const handleManualRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const res = await fetch('/api/refresh', { method: 'POST' });
+      const data = await res.json();
+      setFlight(data.flight);
+      setChanges(data.changes || []);
+      setLastUpdated(new Date());
+      setError(null);
+      showToast('עודכן בהצלחה');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const sc = statusConfig(flight?.status);
+  const StatusIcon = sc.icon;
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center font-sans py-12 px-4" dir="rtl">
-      
-      {/* Device Frame */}
-      <div className="w-full max-w-[380px] h-[800px] bg-white shadow-2xl relative rounded-[3rem] border-[10px] border-gray-900 overflow-hidden ring-1 ring-black/5 flex flex-col">
-        
-        {/* Notch Area & Status Bar Indicator (Subtle Mockup Badge) */}
-        <div className="absolute top-0 left-0 right-0 h-8 z-50 flex justify-between items-center px-6 mt-2 pointer-events-none">
-             <span className="text-[10px] font-bold text-gray-800">09:41</span>
-             <div className="w-32 h-7 bg-black rounded-b-2xl absolute left-1/2 -translate-x-1/2 -top-2"></div>
-             <div className="flex items-center space-x-1 space-x-reverse">
-                <span className="text-[8px] font-bold bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded leading-none border border-gray-300">PROTOTYPE</span>
-                <div className="flex space-x-1">
-                   <div className="w-4 h-2.5 bg-gray-800 rounded-[1px]"></div>
-                   <div className="w-0.5 h-1 bg-gray-800 rounded-sm"></div>
-                </div>
-             </div>
+    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-start py-8 px-4" dir="rtl">
+
+      {/* Phone frame */}
+      <div className="w-full max-w-[390px] bg-slate-900 rounded-[2.5rem] border-[8px] border-slate-800 shadow-2xl shadow-black/60 overflow-hidden relative" style={{ minHeight: 780 }}>
+
+        {/* Status bar */}
+        <div className="flex justify-between items-center px-6 pt-3 pb-1">
+          <span className="text-[11px] font-bold text-slate-400">
+            {new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+          <div className="w-24 h-6 bg-slate-800 rounded-b-xl absolute left-1/2 -translate-x-1/2 top-0" />
+          <Wifi size={14} className="text-slate-400" />
         </div>
 
-        {/* Screen Content */}
-        <div className="flex-1 overflow-y-auto bg-white scrollbar-hide relative z-0 pb-20">
-          {currentScreen === 'onboarding' && <OnboardingScreen onComplete={() => setCurrentScreen('dashboard')} />}
-          {currentScreen === 'dashboard' && <DashboardScreen onNavigate={setCurrentScreen} />}
-          {currentScreen === 'market' && <MarketScreen onNavigate={setCurrentScreen} />}
-          {currentScreen === 'ai' && <AiScreen />}
+        {/* Header */}
+        <div className="px-5 pt-2 pb-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-xs text-slate-500 font-medium tracking-widest uppercase">ארקיע · IZ152</div>
+              <h1 className="text-2xl font-black text-white tracking-tight">מעקב טיסה</h1>
+              <div className="text-xs text-slate-500">
+                פאפוס ← תל אביב · 3.5.2026
+              </div>
+            </div>
+            <button
+              onClick={handleManualRefresh}
+              disabled={refreshing}
+              className="bg-slate-800 hover:bg-slate-700 border border-slate-700 p-3 rounded-2xl transition-colors disabled:opacity-50"
+              title="רענן נתונים"
+            >
+              <RefreshCw size={18} className={`text-slate-300 ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
 
-        {/* Floating Bottom Nav */}
-        {currentScreen !== 'onboarding' && (
-          <div className="absolute bottom-6 left-4 right-4 bg-white/95 backdrop-blur-xl border border-white/40 shadow-[0_8px_30px_rgb(0,0,0,0.12)] rounded-2xl flex justify-around items-center px-2 py-3 z-50">
-            <NavButton 
-              icon={Home} 
-              label="בית" 
-              active={currentScreen === 'dashboard'} 
-              onClick={() => setCurrentScreen('dashboard')} 
-            />
-            <NavButton 
-              icon={TrendingUp} 
-              label="הזדמנויות" 
-              active={currentScreen === 'market'} 
-              onClick={() => setCurrentScreen('market')} 
-            />
-            <NavButton 
-              icon={MessageSquare} 
-              label="ייעוץ" 
-              active={currentScreen === 'ai'} 
-              onClick={() => setCurrentScreen('ai')} 
-            />
+        {/* Tabs */}
+        <div className="flex mx-4 mb-4 bg-slate-800/60 rounded-2xl p-1 gap-1">
+          {[
+            { id: 'status', label: 'סטטוס', icon: Plane },
+            { id: 'history', label: `היסטוריה${changes.length ? ` (${changes.length})` : ''}`, icon: Clock },
+          ].map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-bold transition-all ${
+                tab === id ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              <Icon size={14} />
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="overflow-y-auto pb-10" style={{ maxHeight: 580 }}>
+          {loading ? (
+            <div style={{ height: 300 }}><Spinner /></div>
+          ) : error ? (
+            <>
+              <ErrorBanner message={error} onRetry={() => loadData(true)} />
+              {flight && <FlightStatus flight={flight} sc={sc} StatusIcon={StatusIcon} />}
+            </>
+          ) : tab === 'status' ? (
+            <>
+              <FlightStatus flight={flight} sc={sc} StatusIcon={StatusIcon} />
+              <MockBanner isMock={flight?.isMock} />
+              <EmailSubscription onNotify={showToast} />
+              <PushSubscription />
+              <LastUpdated ts={lastUpdated} />
+            </>
+          ) : (
+            <HistoryTab changes={changes} expanded={historyExpanded} onToggle={() => setHistoryExpanded(v => !v)} />
+          )}
+        </div>
+
+        {/* Toast */}
+        {toast && (
+          <div className="absolute bottom-8 left-4 right-4 bg-green-700 text-white text-sm font-bold py-3 px-4 rounded-2xl text-center shadow-xl animate-fade-in">
+            {toast}
           </div>
         )}
       </div>
 
+      <p className="mt-4 text-xs text-slate-600">Powered by FlightStats · מתעדכן כל 5 דקות</p>
     </div>
   );
-};
+}
 
-export default App;
+function FlightStatus({ flight, sc, StatusIcon }) {
+  if (!flight) return (
+    <div className="mx-4 p-6 text-center text-slate-500 text-sm">
+      לא נמצאו נתוני טיסה. ודא שהשרת פועל.
+    </div>
+  );
+
+  const depTime = flight.departure?.actual || flight.departure?.estimated || flight.departure?.scheduled;
+  const arrTime = flight.arrival?.actual || flight.arrival?.estimated || flight.arrival?.scheduled;
+
+  return (
+    <div className="mx-4">
+      {/* Status badge */}
+      <div className={`flex items-center gap-2 ${sc.bg} border ${sc.border} rounded-2xl px-4 py-3 mb-4`}>
+        <StatusIcon size={18} className={sc.color} />
+        <span className={`font-black text-base ${sc.color}`}>{flight.statusHe || flight.status}</span>
+        {flight.isMock && <span className="text-xs text-slate-500 mr-auto">מידע לדוגמה</span>}
+      </div>
+
+      {/* Main flight card */}
+      <div className="bg-slate-800/60 border border-slate-700 rounded-3xl p-5 mb-4">
+        <div className="flex items-start gap-3">
+          <TimeCard
+            label="המראה"
+            iata={flight.departure?.iata}
+            cityHe={flight.departure?.cityHe}
+            scheduled={flight.departure?.scheduled}
+            estimated={flight.departure?.estimated}
+            actual={flight.departure?.actual}
+            terminal={flight.departure?.terminal}
+            gate={flight.departure?.gate}
+            side="dep"
+          />
+
+          {/* Plane icon in center */}
+          <div className="flex flex-col items-center pt-6 px-2">
+            <div className="w-px h-4 bg-slate-700" />
+            <Plane size={20} className="text-blue-400 rotate-90 my-1" />
+            <div className="w-px h-4 bg-slate-700" />
+            {flight.duration && (
+              <span className="text-[10px] text-slate-500 mt-1">{flight.duration}′</span>
+            )}
+          </div>
+
+          <TimeCard
+            label="נחיתה"
+            iata={flight.arrival?.iata}
+            cityHe={flight.arrival?.cityHe}
+            scheduled={flight.arrival?.scheduled}
+            estimated={flight.arrival?.estimated}
+            actual={flight.arrival?.actual}
+            terminal={flight.arrival?.terminal}
+            gate={flight.arrival?.gate}
+            side="arr"
+          />
+        </div>
+      </div>
+
+      {/* Details row */}
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <DetailTile label="מטוס" value={flight.aircraft?.type || '—'} />
+        <DetailTile label="מזהה טיסה" value={flight.flightId || '—'} />
+        {flight.departure?.terminal && <DetailTile label="טרמינל יציאה" value={flight.departure.terminal} />}
+        {flight.arrival?.terminal && <DetailTile label="טרמינל הגעה" value={flight.arrival.terminal} />}
+      </div>
+    </div>
+  );
+}
+
+function DetailTile({ label, value }) {
+  return (
+    <div className="bg-slate-800/40 border border-slate-700/50 rounded-2xl p-3">
+      <div className="text-xs text-slate-500 mb-1">{label}</div>
+      <div className="text-sm font-bold text-white">{value}</div>
+    </div>
+  );
+}
+
+function MockBanner({ isMock }) {
+  if (!isMock) return null;
+  return (
+    <div className="mx-4 mb-3 flex items-start gap-2 bg-amber-900/30 border border-amber-700/50 rounded-2xl p-3">
+      <Info size={14} className="text-amber-400 mt-0.5 shrink-0" />
+      <p className="text-xs text-amber-300">
+        השרת לא הצליח להגיע ל-FlightStats. מוצגים נתוני דוגמה. ודא שהשרת פועל ויש גישה לאינטרנט.
+      </p>
+    </div>
+  );
+}
+
+function HistoryTab({ changes, expanded, onToggle }) {
+  if (changes.length === 0) {
+    return (
+      <div className="mx-4 py-12 text-center">
+        <CheckCircle2 size={40} className="text-green-500 mx-auto mb-3" />
+        <p className="font-bold text-white text-lg">אין שינויים</p>
+        <p className="text-slate-500 text-sm mt-1">לא זוהו שינויים מאז תחילת המעקב</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-4">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center justify-between py-2 mb-3"
+      >
+        <span className="text-sm font-bold text-slate-300">{changes.length} שינויים מתועדים</span>
+        {expanded ? <ChevronUp size={16} className="text-slate-500" /> : <ChevronDown size={16} className="text-slate-500" />}
+      </button>
+
+      {expanded && (
+        <div className="space-y-3 pb-4">
+          {changes.map((c, i) => <ChangeItem key={c.id || i} change={c} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LastUpdated({ ts }) {
+  if (!ts) return null;
+  return (
+    <p className="text-center text-xs text-slate-600 mt-4 mb-2">
+      עודכן לאחרונה: {ts.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+    </p>
+  );
+}
